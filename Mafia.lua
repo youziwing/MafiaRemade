@@ -4,11 +4,10 @@ local RunService = game:GetService("RunService")
 
 local drawings = {}
 local espObjects = {}
+local totalPlayers = 0
 
 local function clearDrawings()
-    for _, d in ipairs(drawings) do
-        d:Remove()
-    end
+    for _, d in ipairs(drawings) do d:Remove() end
     drawings = {}
 end
 
@@ -23,15 +22,11 @@ local function clearESP()
 end
 
 local function getDisplayName(player)
-    if not player or not player.Character then
-        return player.Name
-    end
+    if not player or not player.Character then return player.Name end
     local head = player.Character:FindFirstChild("Head")
     local billboard = head and head:FindFirstChildOfClass("BillboardGui")
     local label = billboard and billboard:FindFirstChildOfClass("TextLabel")
-    if label and label.Text ~= "" then
-        return label.Text
-    end
+    if label and label.Text ~= "" then return label.Text end
     return player.Name
 end
 
@@ -54,7 +49,7 @@ local function buildPanel()
     clearESP()
 
     local channel = TextChatService.TextChannels:FindFirstChild("Mafia")
-
+    
     local playerMap = {}
     for _, player in ipairs(Players:GetPlayers()) do
         playerMap[player.Name] = player
@@ -74,9 +69,7 @@ local function buildPanel()
                     local head = player.Character:FindFirstChild("Head")
                     local billboard = head and head:FindFirstChildOfClass("BillboardGui")
                     local label = billboard and billboard:FindFirstChildOfClass("TextLabel")
-                    if label and label.Text ~= "" then
-                        name = label.Text
-                    end
+                    if label and label.Text ~= "" then name = label.Text end
                 end
                 table.insert(mafiaNames, name)
                 if player and player ~= Players.LocalPlayer then
@@ -97,14 +90,11 @@ local function buildPanel()
             end
             if not isMafia then
                 local displayName = getDisplayName(player)
-                table.insert(
-                    innocentPlayers,
-                    {
-                        username = player.Name,
-                        displayName = displayName,
-                        player = player
-                    }
-                )
+                table.insert(innocentPlayers, {
+                    username = player.Name,
+                    displayName = displayName,
+                    player = player
+                })
             end
         end
     end
@@ -126,13 +116,11 @@ local function buildPanel()
     local mafiaCount = #mafiaNames
     local innocentCount = #innocentPlayers
     local aliveCount = countAlivePlayers()
-    local totalPlayers = 20
-
+    
     local mafiaSectionHeight = mafiaCount > 0 and (lineHeight * (mafiaCount + 1)) or lineHeight
     local innocentRows = math.ceil(innocentCount / 2)
     local innocentSectionHeight = lineHeight * (innocentRows + 1)
-    local panelHeight =
-        padding * 2 + lineHeight + sectionGap + mafiaSectionHeight + sectionGap + innocentSectionHeight + sectionGap
+    local panelHeight = padding * 2 + lineHeight + sectionGap + mafiaSectionHeight + sectionGap + innocentSectionHeight + sectionGap
 
     local x = screenSize.X - panelWidth - 10
     local y = screenSize.Y / 2 - panelHeight / 2
@@ -218,7 +206,7 @@ local function buildPanel()
     for i, p in ipairs(innocentPlayers) do
         local col = (i - 1) % 2
         local row = math.floor((i - 1) / 2)
-
+        
         local text = p.displayName
 
         local label = Drawing.new("Text")
@@ -249,85 +237,88 @@ local function buildPanel()
         label.Center = true
         label.Visible = false
 
-        table.insert(
-            espObjects,
-            {
-                player = player,
-                displayName = displayName,
-                corners = corners,
-                label = label
-            }
-        )
+        table.insert(espObjects, {
+            player = player,
+            displayName = displayName,
+            corners = corners,
+            label = label
+        })
     end
 end
 
-spawn(
-    function()
-        while true do
-            buildPanel()
-            wait(3)
-        end
+Players.PlayerAdded:Connect(function(player)
+    if player ~= Players.LocalPlayer then
+        totalPlayers = totalPlayers + 1
     end
-)
+end)
 
-RunService.RenderStepped:Connect(
-    function()
-        for _, obj in ipairs(espObjects) do
-            local char = obj.player.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+Players.PlayerRemoving:Connect(function(player)
+    if player ~= Players.LocalPlayer then
+        totalPlayers = totalPlayers - 1
+    end
+end)
 
-            if hrp then
-                local top = WorldToScreen(Vector3.new(hrp.Position.X, hrp.Position.Y + 2.8, hrp.Position.Z))
-                local bot, visible = WorldToScreen(Vector3.new(hrp.Position.X, hrp.Position.Y - 3.2, hrp.Position.Z))
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= Players.LocalPlayer then
+        totalPlayers = totalPlayers + 1
+    end
+end
 
-                if visible then
-                    local h = bot.Y - top.Y
-                    local w = h * 0.45
-                    local cornerSize = math.max(6, math.min(w, h) * 0.15)
+spawn(function()
+    while true do
+        buildPanel()
+        wait(3)
+    end
+end)
 
-                    local tl = Vector2.new(top.X - w / 2, top.Y)
-                    local tr = Vector2.new(top.X + w / 2, top.Y)
-                    local bl = Vector2.new(bot.X - w / 2, bot.Y)
-                    local br = Vector2.new(bot.X + w / 2, bot.Y)
+RunService.RenderStepped:Connect(function()
+    for _, obj in ipairs(espObjects) do
+        local char = obj.player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
-                    local c = obj.corners
+        if hrp then
+            local top = WorldToScreen(Vector3.new(hrp.Position.X, hrp.Position.Y + 2.8, hrp.Position.Z))
+            local bot, visible = WorldToScreen(Vector3.new(hrp.Position.X, hrp.Position.Y - 3.2, hrp.Position.Z))
 
-                    c[1].From = tl
-                    c[1].To = tl + Vector2.new(cornerSize, 0)
-                    c[2].From = tl
-                    c[2].To = tl + Vector2.new(0, cornerSize)
-                    c[3].From = tr
-                    c[3].To = tr - Vector2.new(cornerSize, 0)
-                    c[4].From = tr
-                    c[4].To = tr + Vector2.new(0, cornerSize)
-                    c[5].From = bl
-                    c[5].To = bl + Vector2.new(cornerSize, 0)
-                    c[6].From = bl
-                    c[6].To = bl - Vector2.new(0, cornerSize)
-                    c[7].From = br
-                    c[7].To = br - Vector2.new(cornerSize, 0)
-                    c[8].From = br
-                    c[8].To = br - Vector2.new(0, cornerSize)
+            if visible then
+                local h = bot.Y - top.Y
+                local w = h * 0.45
+                local cornerSize = math.max(6, math.min(w, h) * 0.15)
 
-                    for _, line in ipairs(c) do
-                        line.Visible = true
-                    end
+                local tl = Vector2.new(top.X - w / 2, top.Y)
+                local tr = Vector2.new(top.X + w / 2, top.Y)
+                local bl = Vector2.new(bot.X - w / 2, bot.Y)
+                local br = Vector2.new(bot.X + w / 2, bot.Y)
 
-                    obj.label.Text = obj.displayName
-                    obj.label.Position = Vector2.new(top.X, top.Y - 15)
-                    obj.label.Visible = true
-                else
-                    for _, line in ipairs(obj.corners) do
-                        line.Visible = false
-                    end
-                    obj.label.Visible = false
+                local c = obj.corners
+
+                c[1].From = tl; c[1].To = tl + Vector2.new(cornerSize, 0)
+                c[2].From = tl; c[2].To = tl + Vector2.new(0, cornerSize)
+                c[3].From = tr; c[3].To = tr - Vector2.new(cornerSize, 0)
+                c[4].From = tr; c[4].To = tr + Vector2.new(0, cornerSize)
+                c[5].From = bl; c[5].To = bl + Vector2.new(cornerSize, 0)
+                c[6].From = bl; c[6].To = bl - Vector2.new(0, cornerSize)
+                c[7].From = br; c[7].To = br - Vector2.new(cornerSize, 0)
+                c[8].From = br; c[8].To = br - Vector2.new(0, cornerSize)
+
+                for _, line in ipairs(c) do
+                    line.Visible = true
                 end
+
+                obj.label.Text = obj.displayName
+                obj.label.Position = Vector2.new(top.X, top.Y - 15)
+                obj.label.Visible = true
             else
                 for _, line in ipairs(obj.corners) do
                     line.Visible = false
                 end
                 obj.label.Visible = false
             end
+        else
+            for _, line in ipairs(obj.corners) do
+                line.Visible = false
+            end
+            obj.label.Visible = false
         end
     end
-)
+end)
