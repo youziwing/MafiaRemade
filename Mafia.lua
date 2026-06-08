@@ -1,252 +1,378 @@
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
-local RunService = game:GetService("RunService")
+local lp = Players.LocalPlayer
 
-local D = {}
-local activeMafia = {}
-local deadList, deadNames = {}, {}
-local aliveCache = {}
-local joinedNames, totalJoined = {}, 0
+local joinedNames, joinedCount = {}, 0
+local displayCache = {}
+local seenAlive = {}
+local deadList = {}
 
-local function newText(text, color, size)
+local uiData = {
+    alive = "0 / 0",
+    mafia = "-",
+    dead = "-",
+    inno1 = "-",
+    inno2 = "-",
+    inno3 = "-",
+    inno4 = "-"
+}
+
+local mafiaEspSet = {}
+local espCache = {}
+local lastEspRefresh = 0
+
+local function newSquare()
+    local s = Drawing.new("Square")
+    s.Thickness = 1.2
+    s.Filled = true
+    s.Transparency = 0.12
+    s.Visible = false
+    return s
+end
+
+local function newText()
     local t = Drawing.new("Text")
-    t.Text, t.Color, t.Size, t.Outline, t.Visible = text or "", color or Color3.new(1,1,1), size or 14, true, true
+    t.Size = 13
+    t.Center = true
+    t.Outline = true
+    t.Visible = false
     return t
 end
 
-local function getName(p)
+local function getDisplayName(p)
     if not p then return "Unknown" end
+    local n = p.Name
+    local cached = displayCache[n]
+    if cached then return cached end
     local char = p.Character
-    if not char then return p.Name or "Unknown" end
+    if not char then return n end
     local head = char:FindFirstChild("Head")
-    local bill = head and head:FindFirstChildOfClass("BillboardGui")
-    local lbl = bill and bill:FindFirstChildOfClass("TextLabel")
-    return (lbl and lbl.Text ~= "" and lbl.Text) or p.Name or "Unknown"
-end
-
-local function isAlive(p)
-    local hum = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-    return hum and hum.Health and hum.Health > 0
-end
-
-local function countAlive()
-    local c = 0
-    for _, p in ipairs(Players:GetPlayers() or {}) do
-        if p and p ~= Players.LocalPlayer and isAlive(p) then c = c + 1 end
+    if not head then return n end
+    local bill = head:FindFirstChildOfClass("BillboardGui")
+    if not bill then return n end
+    local lbl = bill:FindFirstChildOfClass("TextLabel")
+    if lbl and lbl.Text ~= "" then
+        displayCache[n] = lbl.Text
+        return lbl.Text
     end
-    return c
+    return n
 end
 
 local function trackJoin(p)
-    if not p or p == Players.LocalPlayer then return end
+    if not p or p == lp then return end
     local n = p.Name
-    if n and not joinedNames[n] then joinedNames[n], totalJoined = true, totalJoined + 1 end
+    if n and not joinedNames[n] then
+        joinedNames[n] = true
+        joinedCount = joinedCount + 1
+    end
 end
 
-local function initPanel()
-    local cam = workspace.CurrentCamera
-    if not cam then return end
-    local ss = cam.ViewportSize
-    if not ss then return end
-    local W, x, y = 288, ss.X - 298, ss.Y/2 - 200
-
-    D.bg = Drawing.new("Square")
-    D.bg.Color, D.bg.Transparency, D.bg.Filled, D.bg.Visible = Color3.fromRGB(20,20,25), 0.9, true, true
-    D.bg.Size, D.bg.Position = Vector2.new(W,400), Vector2.new(x,y)
-
-    D.title = newText("PLAYERS", Color3.fromRGB(200,200,210), 18)
-    D.title.Position = Vector2.new(x+12, y+10)
-
-    D.remain = newText("", Color3.fromRGB(160,160,170), 14)
-
-    D.sep = Drawing.new("Line")
-    D.sep.Color, D.sep.Thickness, D.sep.Visible = Color3.fromRGB(50,50,60), 1, true
-
-    D.mafiaT = newText("MAFIA", Color3.fromRGB(220,70,70), 16)
-    D.deadT = newText("DEAD", Color3.fromRGB(120,120,130), 16)
-    D.innoT = newText("INNOCENT", Color3.fromRGB(80,210,100), 16)
-
-    D.emptyM = newText("None", Color3.fromRGB(80,80,90), 14)
-    D.emptyD = newText("None", Color3.fromRGB(80,80,90), 14)
-
-    D.mafiaL, D.innoL, D.deadL = {}, {}, {}
+local function isAlive(p)
+    local char = p.Character
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health > 0
 end
 
-local function getMafia()
-    local ch = TextChatService.TextChannels:FindFirstChild("Mafia")
-    local all = Players:GetPlayers()
-    if not all then return {}, {} end
-    local map = {}
-    for _, p in ipairs(all) do if p and p.Name then map[p.Name] = p end end
+local function getMafiaChannel()
+    local ch
+    pcall(function()
+        local tc = TextChatService.TextChannels
+        if tc then ch = tc:FindFirstChild("Mafia") end
+    end)
+    if not ch then
+        pcall(function()
+            ch = TextChatService:FindFirstChild("Mafia")
+        end)
+    end
+    return ch
+end
+
+local function getMafia(all, map)
+    local ch = getMafiaChannel()
+    if not ch then return {}, {} end
+
     local entries, mafiaPs = {}, {}
-    if ch then
-        for _, c in ipairs(ch:GetChildren() or {}) do
-            if c and c.ClassName == "TextSource" then
-                local p = map[c.Name]
-                if p and p ~= Players.LocalPlayer and isAlive(p) then
-                    table.insert(entries, {username=c.Name, displayName=getName(p)})
-                    table.insert(mafiaPs, p)
-                end
+    local children = ch:GetChildren()
+    if not children then return {}, {} end
+    
+    for _, c in ipairs(children) do
+        if c.ClassName == "TextSource" then
+            local p = map[c.Name]
+            if p and p ~= lp and isAlive(p) then
+                local dName = getDisplayName(p)
+                table.insert(entries, dName)
+                table.insert(mafiaPs, p)
             end
         end
     end
     return entries, mafiaPs
 end
 
-local function updateDead()
+local function getEsp(p)
+    local e = espCache[p]
+    if e then return e end
+    e = {
+        box = newSquare(),
+        outline = newSquare(),
+        name = newText()
+    }
+    e.outline.Filled = false
+    e.outline.Transparency = 1
+    espCache[p] = e
+    return e
+end
+
+local function removeEsp(p)
+    local e = espCache[p]
+    if not e then return end
+    pcall(function() e.box:Remove() end)
+    pcall(function() e.outline:Remove() end)
+    pcall(function() e.name:Remove() end)
+    espCache[p] = nil
+end
+
+local function hideEsp(e)
+    e.box.Visible = false
+    e.outline.Visible = false
+    e.name.Visible = false
+end
+
+local function toScreen(pos)
+    local ok, result, onScreen = pcall(WorldToScreen, pos)
+    if ok and onScreen and result then return result end
+    return nil
+end
+
+local function drawEsp(p, e)
+    local char = p.Character
+    if not char then return false end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    local head = char:FindFirstChild("Head")
+    local topPos = head and (head.Position + Vector3.new(0, 0.6, 0)) or (hrp.Position + Vector3.new(0, 3, 0))
+    local botPos = hrp.Position - Vector3.new(0, 3.2, 0)
+
+    local top = toScreen(topPos)
+    local bot = toScreen(botPos)
+    if not top or not bot then return false end
+
+    local h = bot.Y - top.Y
+    if h < 10 then return false end
+    local w = h * 0.5
+    local x, y = top.X, top.Y
+
+    local fx = math.floor(x - w/2 + 0.5)
+    local fy = math.floor(y + 0.5)
+    local fw = math.floor(w + 0.5)
+    local fh = math.floor(h + 0.5)
+
+    e.box.Position = Vector2.new(fx, fy)
+    e.box.Size = Vector2.new(fw, fh)
+    e.box.Visible = true
+
+    e.outline.Position = Vector2.new(fx, fy)
+    e.outline.Size = Vector2.new(fw, fh)
+    e.outline.Visible = true
+
+    e.name.Position = Vector2.new(math.floor(x + 0.5), math.floor(y - 18 + 0.5))
+    e.name.Text = getDisplayName(p)
+    e.name.Visible = true
+
+    return true
+end
+
+local function getMafiaEsp()
+    local ch = getMafiaChannel()
+    if not ch then return {} end
+
     local all = Players:GetPlayers()
-    if not all then return false end
-    local aliveNow = {}
+    local map = {}
     for _, p in ipairs(all) do
-        if p and p ~= Players.LocalPlayer and p.Name and isAlive(p) then
-            aliveNow[p.Name] = true
-            aliveCache[p.Name] = {displayName=getName(p), username=p.Name}
-        end
+        if p and p.Name then map[p.Name] = p end
     end
-    local changed = false
-    for name, data in pairs(aliveCache) do
-        if not aliveNow[name] and not deadNames[name] then
-            local stillHere = false
-            for _, p in ipairs(all) do if p.Name == name then stillHere = true break end end
-            if stillHere then
-                deadNames[name] = true
-                table.insert(deadList, {username=data.username, displayName=data.displayName, time=tick()})
-                changed = true
+
+    local result = {}
+    local children = ch:GetChildren()
+    if not children then return {} end
+    
+    for _, c in ipairs(children) do
+        if c.ClassName == "TextSource" then
+            local p = map[c.Name]
+            if p and p ~= lp then
+                local char = p.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    result[p] = true
+                end
             end
         end
     end
-    for name, _ in pairs(aliveCache) do
-        local here = false
-        for _, p in ipairs(all) do if p.Name == name then here = true break end end
-        if not here then aliveCache[name] = nil end
-    end
-    return changed
+    return result
 end
 
-local function updatePanel(mafiaE, innoP)
-    if not mafiaE or not innoP then return end
-    local cam = workspace.CurrentCamera
-    if not cam then return end
-    local ss = cam.ViewportSize
-    if not ss then return end
-    local W, LH, P, G = 288, 19, 12, 5
-    local mC, iC, dC = #mafiaE, #innoP, #deadList
-    local halfW = (W - P*3)/2
-    local mH = mC > 0 and LH*(mC+1) or LH
-    local dH = dC > 0 and LH*(dC+1) or LH
-    local topH = math.max(mH, dH)
-    local iRows = math.ceil(iC/2)
-    local iH = LH*(iRows+1)
-    local pH = 34 + G + topH + G + iH + P
-    local x, y = ss.X - W - 10, ss.Y/2 - pH/2
+UI.AddTab("Player Tracker", function(tab)
+    local info = tab:Section("Live Info", "Left")
+    info:InputText("alive_txt", "Alive", uiData.alive, function() return uiData.alive end)
+    info:InputText("mafia_txt", "Mafia", uiData.mafia, function() return uiData.mafia end)
+    info:InputText("dead_txt", "Dead", uiData.dead, function() return uiData.dead end)
 
-    D.bg.Size, D.bg.Position = Vector2.new(W,pH), Vector2.new(x,y)
-    D.title.Position = Vector2.new(x+12, y+8)
-    D.remain.Position = Vector2.new(x+W-96, y+9)
+    local inno = tab:Section("Innocent", "Right")
+    inno:InputText("inno_1", "Row 1", uiData.inno1, function() return uiData.inno1 end)
+    inno:InputText("inno_2", "Row 2", uiData.inno2, function() return uiData.inno2 end)
+    inno:InputText("inno_3", "Row 3", uiData.inno3, function() return uiData.inno3 end)
+    inno:InputText("inno_4", "Row 4", uiData.inno4, function() return uiData.inno4 end)
+end)
 
-    D.sep.From = Vector2.new(x+12, y+31)
-    D.sep.To = Vector2.new(x+W-12, y+31)
-
-    local my = y + 34 + G
-    D.mafiaT.Position = Vector2.new(x+P, my)
-    local mcy = my + LH
-    D.emptyM.Visible = mC == 0
-    D.emptyM.Position = Vector2.new(x+P+2, mcy)
-    if mC == 0 then mcy = mcy + LH end
-
-    for i = 1, math.max(mC, #D.mafiaL) do
-        local l = D.mafiaL[i]
-        if i <= mC then
-            if not l then l = newText("", Color3.fromRGB(220,90,90), 14); D.mafiaL[i] = l end
-            l.Text = mafiaE[i] and mafiaE[i].displayName or "Unknown"
-            l.Position, l.Visible = Vector2.new(x+P+2, mcy), true
-            mcy = mcy + LH
-        elseif l then l.Visible = false end
-    end
-
-    local dx = x + P*2 + halfW
-    D.deadT.Position = Vector2.new(dx, my)
-    local dcy = my + LH
-    D.emptyD.Visible = dC == 0
-    D.emptyD.Position = Vector2.new(dx+2, dcy)
-    if dC == 0 then dcy = dcy + LH end
-
-    for i = 1, math.max(dC, #D.deadL) do
-        local l = D.deadL[i]
-        if i <= dC then
-            if not l then l = newText("", Color3.fromRGB(120,120,130), 14); D.deadL[i] = l end
-            l.Text = deadList[i] and deadList[i].displayName or "Unknown"
-            l.Position, l.Visible = Vector2.new(dx+2, dcy), true
-            dcy = dcy + LH
-        elseif l then l.Visible = false end
-    end
-
-    local iy = my + topH + G
-    D.innoT.Position = Vector2.new(x+P, iy)
-    iy = iy + LH
-    local colW = (W - P*2)/2
-
-    for i = 1, math.max(iC, #D.innoL) do
-        local l = D.innoL[i]
-        if i <= iC then
-            if not l then l = newText("", Color3.fromRGB(190,190,200), 14); D.innoL[i] = l end
-            local e = innoP[i]
-            l.Text = e and (e.displayName or e.username or "Unknown") or "Unknown"
-            l.Position = Vector2.new(x+P+2 + ((i-1)%2)*colW, iy + math.floor((i-1)/2)*LH)
-            l.Visible = true
-        elseif l then l.Visible = false end
-    end
-end
-
-local function updateRemainCounter()
-    if not D.remain then return end
-    local aliveC = countAlive()
-    D.remain.Text = aliveC.." / "..totalJoined
-end
-
-local function refresh()
-    local mafiaE, mafiaP = getMafia()
-    if not mafiaE then return end
-    local mafiaNames = {}
-    for _, e in ipairs(mafiaE) do if e and e.displayName then mafiaNames[e.displayName] = true end end
-    local innoP = {}
-    for _, p in ipairs(Players:GetPlayers() or {}) do
-        if p and p ~= Players.LocalPlayer and isAlive(p) then
-            local isM = false
-            for _, m in ipairs(mafiaP) do if m == p then isM = true break end end
-            if not isM then table.insert(innoP, {username=p.Name, displayName=getName(p), player=p}) end
-        end
-    end
-    for i = #innoP, 1, -1 do
-        if mafiaNames[innoP[i].displayName] then table.remove(innoP, i) end
-    end
-    updatePanel(mafiaE, innoP)
-end
-
+for _, p in ipairs(Players:GetPlayers() or {}) do trackJoin(p) end
 Players.PlayerAdded:Connect(trackJoin)
 Players.PlayerRemoving:Connect(function(p)
-    if p and p.Name then aliveCache[p.Name] = nil end
+    if not p then return end
+    local n = p.Name
+    local dName = displayCache[n] or n
+
+    displayCache[n] = nil
+    seenAlive[n] = nil
+
+    for i = #deadList, 1, -1 do
+        if deadList[i] == dName then
+            table.remove(deadList, i)
+            break
+        end
+    end
+
+    removeEsp(p)
+    mafiaEspSet[p] = nil
 end)
-for _, p in ipairs(Players:GetPlayers() or {}) do trackJoin(p) end
-initPanel()
 
 task.spawn(function()
     while true do
-        local deadChanged = false
-        local ok1, changed = pcall(updateDead)
-        if ok1 and changed then deadChanged = true end
-        pcall(updateRemainCounter)
-        if deadChanged then
-            pcall(refresh)
+        task.wait(1.5)
+
+        local all = Players:GetPlayers()
+        if not all then continue end
+
+        local nameMap = {}
+        for _, p in ipairs(all) do
+            trackJoin(p)
+            if p ~= lp then
+                nameMap[p.Name] = p
+            end
         end
-        task.wait(0.1)
+
+        local mafiaNames, mafiaP = getMafia(all, nameMap)
+
+        local mafiaSetTracker = {}
+        for _, m in ipairs(mafiaP) do
+            mafiaSetTracker[m] = true
+        end
+
+        local aliveNow = {}
+        local aliveCount = 0
+        local innoList = {}
+
+        for _, p in ipairs(all) do
+            if p == lp then continue end
+            local n = p.Name
+            local dName = getDisplayName(p)
+
+            if isAlive(p) then
+                aliveCount = aliveCount + 1
+                aliveNow[n] = dName
+                seenAlive[n] = dName
+                if not mafiaSetTracker[p] then
+                    table.insert(innoList, dName)
+                end
+            else
+                if seenAlive[n] then
+                    local alreadyDead = false
+                    for _, dead in ipairs(deadList) do
+                        if dead == dName then
+                            alreadyDead = true
+                            break
+                        end
+                    end
+                    if not alreadyDead then
+                        table.insert(deadList, dName)
+                    end
+                    seenAlive[n] = nil
+                end
+            end
+        end
+
+        for n in pairs(seenAlive) do
+            if not nameMap[n] then
+                seenAlive[n] = nil
+            end
+        end
+
+        local innoChunks = {"", "", "", ""}
+        for i, name in ipairs(innoList) do
+            local line = math.ceil(i / 5)
+            if line <= 4 then
+                local chunk = innoChunks[line]
+                innoChunks[line] = chunk .. (chunk ~= "" and ", " or "") .. name
+            end
+        end
+
+        uiData.alive = aliveCount .. " / " .. joinedCount
+        uiData.mafia = #mafiaNames > 0 and table.concat(mafiaNames, ", ") or "None"
+        uiData.dead = #deadList > 0 and table.concat(deadList, ", ") or "None"
+        uiData.inno1 = innoChunks[1] ~= "" and innoChunks[1] or "-"
+        uiData.inno2 = innoChunks[2] ~= "" and innoChunks[2] or "-"
+        uiData.inno3 = innoChunks[3] ~= "" and innoChunks[3] or "-"
+        uiData.inno4 = innoChunks[4] ~= "" and innoChunks[4] or "-"
+
+        pcall(function()
+            UI.SetValue("alive_txt", uiData.alive)
+            UI.SetValue("mafia_txt", uiData.mafia)
+            UI.SetValue("dead_txt", uiData.dead)
+            UI.SetValue("inno_1", uiData.inno1)
+            UI.SetValue("inno_2", uiData.inno2)
+            UI.SetValue("inno_3", uiData.inno3)
+            UI.SetValue("inno_4", uiData.inno4)
+        end)
     end
 end)
 
 task.spawn(function()
     while true do
-        task.wait(3)
-        local ok, err = pcall(refresh)
-        if not ok then warn("R: "..tostring(err)) end
+        task.wait(0.1)
+
+        local now = tick()
+        if now - lastEspRefresh > 0.5 then
+            mafiaEspSet = getMafiaEsp()
+            lastEspRefresh = now
+        end
+
+        for p, e in pairs(espCache) do
+            if not mafiaEspSet[p] then
+                hideEsp(e)
+            end
+        end
+
+        for p in pairs(mafiaEspSet) do
+            if not p or not p.Parent then
+                mafiaEspSet[p] = nil
+                removeEsp(p)
+                continue
+            end
+            local e = getEsp(p)
+            local ok = pcall(drawEsp, p, e)
+            if not ok then
+                hideEsp(e)
+            end
+        end
+
+        local toRemove = {}
+        for p in pairs(espCache) do
+            if not p or not p.Parent then
+                table.insert(toRemove, p)
+            end
+        end
+        for _, p in ipairs(toRemove) do
+            removeEsp(p)
+        end
     end
 end)
