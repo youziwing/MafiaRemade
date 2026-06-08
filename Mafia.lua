@@ -3,24 +3,15 @@ local TextChatService = game:GetService("TextChatService")
 local RunService = game:GetService("RunService")
 
 local D = {}
-local espObjs = {}
 local activeMafia = {}
 local deadList, deadNames = {}, {}
 local aliveCache = {}
 local joinedNames, totalJoined = {}, 0
-local deadListChanged = false
-local lastDeadCount = 0
 
 local function newText(text, color, size)
     local t = Drawing.new("Text")
     t.Text, t.Color, t.Size, t.Outline, t.Visible = text or "", color or Color3.new(1,1,1), size or 14, true, true
     return t
-end
-
-local function newLine(color)
-    local l = Drawing.new("Line")
-    l.Color, l.Thickness, l.Visible = color or Color3.new(1,1,1), 2, false
-    return l
 end
 
 local function getName(p)
@@ -213,81 +204,6 @@ local function updateRemainCounter()
     D.remain.Text = aliveC.." / "..totalJoined
 end
 
-local function ensureESP(p)
-    if not p or not p.Name then return end
-    local n = p.Name
-    if espObjs[n] then
-        espObjs[n].ref, espObjs[n].last, espObjs[n].name = p, tick(), getName(p)
-        return espObjs[n]
-    end
-    local c = {}
-    for i = 1, 8 do c[i] = newLine(Color3.fromRGB(220,60,60)) end
-    local obj = {corners=c, label=newText("", Color3.new(1,1,1), 16), ref=p, last=tick(), name=getName(p)}
-    obj.label.Center = true
-    espObjs[n] = obj
-    return obj
-end
-
-local function hideESP(n)
-    local o = espObjs[n]
-    if not o then return end
-    for _, l in ipairs(o.corners) do if l then l.Visible = false end end
-    if o.label then o.label.Visible = false end
-end
-
-local function killESP(n)
-    local o = espObjs[n]
-    if not o then return end
-    for _, l in ipairs(o.corners) do pcall(function() l:Remove() end) end
-    pcall(function() o.label:Remove() end)
-    espObjs[n] = nil
-end
-
-local function purgeESP()
-    local now = tick()
-    local valid = {}
-    for _, p in ipairs(Players:GetPlayers() or {}) do if p and p.Name then valid[p.Name] = true end end
-    for n, o in pairs(espObjs) do
-        if not valid[n] or now - o.last > 30 then killESP(n) end
-    end
-end
-
-local function renderESP()
-    for n, o in pairs(espObjs) do
-        if not activeMafia[n] then hideESP(n) continue end
-        local p = o.ref
-        if not p or not p.Parent then
-            p = Players:FindFirstChild(n)
-            if p then o.ref = p else hideESP(n) continue end
-        end
-        local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then hideESP(n) continue end
-        local topOk, top = pcall(WorldToScreen, hrp.Position + Vector3.new(0, 2.8, 0))
-        local botOk, bot, vis = pcall(WorldToScreen, hrp.Position + Vector3.new(0, -3.2, 0))
-        if not topOk or not botOk or not vis or not top or not bot then hideESP(n) continue end
-        local h = bot.Y - top.Y
-        local w = h * 0.45
-        local cs = math.max(6, math.min(w,h)*0.15)
-        local tl = Vector2.new(top.X-w/2, top.Y)
-        local tr = Vector2.new(top.X+w/2, top.Y)
-        local bl = Vector2.new(bot.X-w/2, bot.Y)
-        local br = Vector2.new(bot.X+w/2, bot.Y)
-        local c = o.corners
-        c[1].From, c[1].To = tl, tl + Vector2.new(cs,0)
-        c[2].From, c[2].To = tl, tl + Vector2.new(0,cs)
-        c[3].From, c[3].To = tr, tr - Vector2.new(cs,0)
-        c[4].From, c[4].To = tr, tr + Vector2.new(0,cs)
-        c[5].From, c[5].To = bl, bl + Vector2.new(cs,0)
-        c[6].From, c[6].To = bl, bl - Vector2.new(0,cs)
-        c[7].From, c[7].To = br, br - Vector2.new(cs,0)
-        c[8].From, c[8].To = br, br - Vector2.new(0,cs)
-        for _, l in ipairs(c) do l.Visible = true end
-        o.label.Text = o.name or "Unknown"
-        o.label.Position = Vector2.new(top.X, top.Y-18)
-        o.label.Visible = true
-    end
-end
-
 local function refresh()
     local mafiaE, mafiaP = getMafia()
     if not mafiaE then return end
@@ -305,16 +221,11 @@ local function refresh()
         if mafiaNames[innoP[i].displayName] then table.remove(innoP, i) end
     end
     updatePanel(mafiaE, innoP)
-    activeMafia = {}
-    for _, p in ipairs(mafiaP) do
-        if p and p.Name then activeMafia[p.Name] = true ensureESP(p) end
-    end
-    for n, _ in pairs(espObjs) do if not activeMafia[n] then hideESP(n) end end
 end
 
 Players.PlayerAdded:Connect(trackJoin)
 Players.PlayerRemoving:Connect(function(p)
-    if p and p.Name then killESP(p.Name) aliveCache[p.Name] = nil end
+    if p and p.Name then aliveCache[p.Name] = nil end
 end)
 for _, p in ipairs(Players:GetPlayers() or {}) do trackJoin(p) end
 initPanel()
@@ -338,13 +249,4 @@ task.spawn(function()
         local ok, err = pcall(refresh)
         if not ok then warn("R: "..tostring(err)) end
     end
-end)
-
-RunService.RenderStepped:Connect(function()
-    local ok, err = pcall(renderESP)
-    if not ok then warn("E: "..tostring(err)) end
-end)
-
-task.spawn(function()
-    while true do task.wait(10) pcall(purgeESP) end
 end)
