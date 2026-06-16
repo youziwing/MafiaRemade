@@ -1,4 +1,4 @@
-local Players = game:GetService("Players")
+local Players = game.Players or game:GetService("Players")  -- FIX: use game.Players alias
 local TextChatService = game:GetService("TextChatService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -392,18 +392,82 @@ pcall(function()
     end)
 end)
 
-Players.PlayerAdded:Connect(function(p)
-    if p and p ~= lp then totalJoined = totalJoined + 1 end
-end)
+-- FIX: Defensive event connection with fallback polling
+local playerAddedConn, playerRemovingConn
 
-Players.PlayerRemoving:Connect(function(p)
-    if not p then return end
-    local n = p.Name
-    displayCache[n] = nil
-    previousAlive[n] = nil
-    removePlayerESP(n)
-    killers[n] = nil
-end)
+if Players.PlayerAdded then
+    local ok, conn = pcall(function()
+        return Players.PlayerAdded:Connect(function(p)
+            if p and p ~= lp then totalJoined = totalJoined + 1 end
+        end)
+    end)
+    if ok and conn then
+        playerAddedConn = conn
+    end
+end
+
+if Players.PlayerRemoving then
+    local ok, conn = pcall(function()
+        return Players.PlayerRemoving:Connect(function(p)
+            if not p then return end
+            local n = p.Name
+            displayCache[n] = nil
+            previousAlive[n] = nil
+            removePlayerESP(n)
+            killers[n] = nil
+        end)
+    end)
+    if ok and conn then
+        playerRemovingConn = conn
+    end
+end
+
+-- Fallback polling if events aren't available
+if not playerAddedConn then
+    task.spawn(function()
+        local knownPlayers = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp then knownPlayers[p.Name] = true end
+        end
+        while true do
+            task.wait(2)
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp and not knownPlayers[p.Name] then
+                    knownPlayers[p.Name] = true
+                    totalJoined = totalJoined + 1
+                end
+            end
+        end
+    end)
+end
+
+if not playerRemovingConn then
+    task.spawn(function()
+        local knownPlayers = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp then knownPlayers[p.Name] = true end
+        end
+        while true do
+            task.wait(2)
+            local currentNames = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp then
+                    currentNames[p.Name] = true
+                    knownPlayers[p.Name] = true
+                end
+            end
+            for name, _ in pairs(knownPlayers) do
+                if not currentNames[name] then
+                    knownPlayers[name] = nil
+                    displayCache[name] = nil
+                    previousAlive[name] = nil
+                    removePlayerESP(name)
+                    killers[name] = nil
+                end
+            end
+        end
+    end)
+end
 
 local lastWeaponCheck = 0
 local lastResetCheck = 0
