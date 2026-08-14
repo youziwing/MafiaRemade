@@ -564,26 +564,6 @@ task.spawn(function()
     end
 end)
 
-local knownVeil = {}
-task.spawn(function()
-    while true do
-        task.wait(2)
-        local currentVeil = getVeilNames()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= lp then
-                local dName = getDisplayName(p)
-                if (currentVeil[p.Name] or currentVeil[dName]) and not knownVeil[p.Name] then
-                    knownVeil[p.Name] = true
-                    sendAlert(dName .. " is in the Veil!", p.Name .. "_veil")
-                end
-                if not (currentVeil[p.Name] or currentVeil[dName]) then
-                    knownVeil[p.Name] = nil
-                end
-            end
-        end
-    end
-end)
-
 task.spawn(function()
     while true do
         task.wait(5)
@@ -701,4 +681,4 @@ end)
 
 RunService.RenderStepped:Connect(renderESP)
 
-notify("Mafia + Veil", "Killer Tracker", 3)
+notify("Mafia + Veil", "Tracker", 3)
