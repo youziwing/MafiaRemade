@@ -1,4 +1,4 @@
-local Players = game.Players or game:GetService("Players")  -- FIX: use game.Players alias
+local Players = game.Players or game:GetService("Players") 
 local TextChatService = game:GetService("TextChatService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
