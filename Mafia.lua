@@ -1,4 +1,4 @@
-local Players = game.Players or game:GetService("Players")  -- FIX: use game.Players alias
+local Players = game.Players or game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -13,7 +13,6 @@ local KILLER_TIMEOUT = 85
 local alertHistory = {}
 local mafiaCache = {}
 local mafiaCacheTime = 0
--- [VEIL] cache
 local veilCache = {}
 local veilCacheTime = 0
 
@@ -26,9 +25,8 @@ local killers = {}
 local KILLER_COLOR = Color3.fromRGB(255, 140, 30)
 local KILLER_TAG = "[KILLER]"
 
--- [VEIL] colour / tag
-local veilColor  = Color3.fromRGB(160, 80, 230)
-local VEIL_TAG   = "[VEIL]"
+local veilColor = Color3.fromRGB(160, 80, 230)
+local VEIL_TAG = "[VEIL]"
 
 local trackerData = { alive = "0 / 0", mafia = "-", veil = "-", dead = "-", inno1 = "-", inno2 = "-", inno3 = "-", inno4 = "-" }
 
@@ -36,7 +34,7 @@ local ESPObjects = {}
 local RenderCache = {}
 local renderFrame = 0
 
-local mafColor  = Color3.fromRGB(220, 90, 90)
+local mafColor = Color3.fromRGB(220, 90, 90)
 local innoColor = Color3.fromRGB(190, 190, 200)
 
 local VEC_TOP = Vector3.new(0, 2.8, 0)
@@ -71,7 +69,6 @@ local function isAlive(p)
     return hum and hum.Health > 0
 end
 
--- ─── Mafia channel ───────────────────────────────────────────────────────────
 local function getMafiaChannel()
     local ok, tc = pcall(function() return TextChatService.TextChannels end)
     if ok and tc then
@@ -106,7 +103,6 @@ local function getMafiaNames()
     return names
 end
 
--- ─── Veil channel ────────────────────────────────────────────────────────────
 local function getVeilChannel()
     local ok, tc = pcall(function() return TextChatService.TextChannels end)
     if ok and tc then
@@ -141,7 +137,6 @@ local function getVeilNames()
     return names
 end
 
--- ─── Weapon helpers ──────────────────────────────────────────────────────────
 local function isWeaponName(name)
     if not name then return false end
     local low = name:lower()
@@ -176,7 +171,6 @@ local function isKnifeName(name)
     return false
 end
 
--- ─── Alerts ──────────────────────────────────────────────────────────────────
 local function sendAlert(msg, key)
     local now = tick()
     if key then
@@ -189,7 +183,6 @@ local function sendAlert(msg, key)
     end)
 end
 
--- ─── Killer detection ────────────────────────────────────────────────────────
 local function detectKiller()
     local currentMafia = getMafiaNames()
     for _, p in ipairs(Players:GetPlayers()) do
@@ -246,7 +239,6 @@ local function resetKillers()
     end
 end
 
--- ─── Drawing helpers ─────────────────────────────────────────────────────────
 local function newText(text, color, size)
     local t = Drawing.new("Text")
     t.Text, t.Size, t.Outline, t.Visible = text or "", size or 14, true, true
@@ -278,7 +270,6 @@ local function removePlayerESP(playerName)
     RenderCache[playerName] = nil
 end
 
--- ─── ESP refresh ─────────────────────────────────────────────────────────────
 local function refreshESP()
     local mafiaNames = getMafiaNames()
     local veilNames  = getVeilNames()
@@ -287,7 +278,7 @@ local function refreshESP()
         if p ~= lp then
             local alive = isAlive(p)
             if alive then
-                local dName  = getDisplayName(p)
+                local dName   = getDisplayName(p)
                 local isMafia = mafiaNames[dName] or mafiaNames[p.Name]
                 local isVeil  = veilNames[dName]  or veilNames[p.Name]
                 newCache[p.Name] = {
@@ -315,7 +306,6 @@ local function setLineFast(line, f, t)
     if line.To   ~= t then line.To   = t end
 end
 
--- ─── ESP render ──────────────────────────────────────────────────────────────
 local function renderESP()
     local cam = Workspace.CurrentCamera
     if not cam then return end
@@ -328,11 +318,11 @@ local function renderESP()
             local c = {}
             for i = 1, 8 do c[i] = newLine(Color3.fromRGB(220, 60, 60)) end
             obj = {
-                corners  = c,
-                label    = newText("", Color3.new(1,1,1), 16),
-                tag      = newText("", KILLER_COLOR, 14),
-                veilTag  = newText("", veilColor, 14),  -- [VEIL] tag
-                hrp      = nil,
+                corners   = c,
+                label     = newText("", Color3.new(1,1,1), 16),
+                tag       = newText("", KILLER_COLOR, 14),
+                veilTag   = newText("", veilColor, 14),
+                hrp       = nil,
                 lastFrame = 0
             }
             ESPObjects[name] = obj
@@ -355,7 +345,6 @@ local function renderESP()
                 local isKiller = killers[name] ~= nil
                 local isVeil   = data.isVeil
 
-                -- Box colour: Veil > Killer > Mafia
                 local color = data.status == "Mafia" and mafColor or innoColor
                 if isKiller then color = KILLER_COLOR end
                 if isVeil   then color = veilColor    end
@@ -402,7 +391,6 @@ local function renderESP()
                     if label.Position ~= labelPos then label.Position = labelPos end
                     if not label.Visible then label.Visible = true end
 
-                    -- [KILLER] side-tag
                     if isKiller and not isVeil then
                         local tagPos = Vector2.new(topX + halfW + 35, topY - 18)
                         if obj.tag.Text     ~= KILLER_TAG   then obj.tag.Text     = KILLER_TAG   end
@@ -413,19 +401,17 @@ local function renderESP()
                         if obj.tag.Visible then obj.tag.Visible = false end
                     end
 
-                    -- [VEIL] side-tag (shown whenever player is in Veil channel)
                     if isVeil then
                         local vTagPos = Vector2.new(topX + halfW + 35, topY - 18)
-                        if obj.veilTag.Text     ~= VEIL_TAG   then obj.veilTag.Text     = VEIL_TAG   end
-                        if obj.veilTag.Color    ~= veilColor  then obj.veilTag.Color    = veilColor  end
-                        if obj.veilTag.Position ~= vTagPos    then obj.veilTag.Position = vTagPos    end
+                        if obj.veilTag.Text     ~= VEIL_TAG  then obj.veilTag.Text     = VEIL_TAG  end
+                        if obj.veilTag.Color    ~= veilColor then obj.veilTag.Color    = veilColor end
+                        if obj.veilTag.Position ~= vTagPos   then obj.veilTag.Position = vTagPos   end
                         if not obj.veilTag.Visible then obj.veilTag.Visible = true end
                     else
                         if obj.veilTag.Visible then obj.veilTag.Visible = false end
                     end
 
                 else
-                    -- Civ (no box)
                     for i = 1, 8 do
                         if corners[i].Visible then corners[i].Visible = false end
                     end
@@ -454,14 +440,13 @@ local function renderESP()
     end
 end
 
--- ─── UI ──────────────────────────────────────────────────────────────────────
 pcall(function()
     UI.AddTab("Players", function(tab)
         local info = tab:Section("Live Info", "Left")
-        info:InputText("alive_txt", "Alive",  trackerData.alive, function() end)
-        info:InputText("mafia_txt", "Mafia",  trackerData.mafia, function() end)
-        info:InputText("veil_txt",  "Veil",   trackerData.veil,  function() end)  -- [VEIL]
-        info:InputText("dead_txt",  "Dead",   trackerData.dead,  function() end)
+        info:InputText("alive_txt", "Alive", trackerData.alive, function() end)
+        info:InputText("mafia_txt", "Mafia", trackerData.mafia, function() end)
+        info:InputText("veil_txt",  "Veil",  trackerData.veil,  function() end)
+        info:InputText("dead_txt",  "Dead",  trackerData.dead,  function() end)
         local inno = tab:Section("Innocent", "Right")
         inno:InputText("inno_1", "Row 1", trackerData.inno1, function() end)
         inno:InputText("inno_2", "Row 2", trackerData.inno2, function() end)
@@ -470,7 +455,6 @@ pcall(function()
     end)
 end)
 
--- ─── Player events / fallback polling ────────────────────────────────────────
 local playerAddedConn, playerRemovingConn
 
 if Players.PlayerAdded then
@@ -542,7 +526,6 @@ if not playerRemovingConn then
     end)
 end
 
--- ─── Killer / reset loops ────────────────────────────────────────────────────
 local lastWeaponCheck = 0
 local lastResetCheck  = 0
 
@@ -581,7 +564,6 @@ task.spawn(function()
     end
 end)
 
--- ─── Veil alert loop ─────────────────────────────────────────────────────────
 local knownVeil = {}
 task.spawn(function()
     while true do
@@ -595,14 +577,13 @@ task.spawn(function()
                     sendAlert(dName .. " is in the Veil!", p.Name .. "_veil")
                 end
                 if not (currentVeil[p.Name] or currentVeil[dName]) then
-                    knownVeil[p.Name] = nil  -- reset if they leave Veil
+                    knownVeil[p.Name] = nil
                 end
             end
         end
     end
 end)
 
--- ─── Tracker update loop ─────────────────────────────────────────────────────
 task.spawn(function()
     while true do
         task.wait(5)
@@ -612,7 +593,6 @@ task.spawn(function()
             if p ~= lp then nameMap[p.Name] = p end
         end
 
-        -- Mafia
         local ch = getMafiaChannel()
         local mafiaEntries = {}
         local mafiaSet     = {}
@@ -632,7 +612,6 @@ task.spawn(function()
             end
         end
 
-        -- Veil
         local vch = getVeilChannel()
         local veilEntries = {}
         local veilSet     = {}
@@ -652,8 +631,8 @@ task.spawn(function()
             end
         end
 
-        local aliveCount  = 0
-        local innoList    = {}
+        local aliveCount   = 0
+        local innoList     = {}
         local currentAlive = {}
 
         for _, p in ipairs(all) do
@@ -712,7 +691,6 @@ task.spawn(function()
     end
 end)
 
--- ─── ESP loops ───────────────────────────────────────────────────────────────
 task.spawn(function()
     while true do
         local ok, err = pcall(refreshESP)
@@ -723,4 +701,4 @@ end)
 
 RunService.RenderStepped:Connect(renderESP)
 
-notify("Killer Tracker + Veil loaded", "Killer Tracker", 3)
+notify("Mafia + Veil", "Killer Tracker", 3)
