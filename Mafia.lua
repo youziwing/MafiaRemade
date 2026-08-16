@@ -6,14 +6,16 @@ local WATCH_NAMES    = {"Knife","Gun","Pistol","Revolver","Weapon","Blade","Dagg
 local EXCLUDE_NAMES  = {"Handle","Mesh","Texture","Decal"}
 local ALERT_COOLDOWN = 3
 local KILLER_TIMEOUT = 85
-local KILLER_COLOR = Color3.fromRGB(255, 140, 30)
-local KILLER_TAG   = "[KILLER]"
-local veilColor    = Color3.fromRGB(160, 80, 230)
-local VEIL_TAG     = "[VEIL]"
-local mafColor     = Color3.fromRGB(220, 90, 90)
-local innoColor    = Color3.fromRGB(190, 190, 200)
-local VEC_TOP      = Vector3.new(0,  2.8, 0)
-local VEC_BOT      = Vector3.new(0, -3.2, 0)
+local KILLER_COLOR   = Color3.fromRGB(255, 140, 30)
+local KILLER_TAG     = "[KILLER]"
+local veilColor      = Color3.fromRGB(160, 80, 230)
+local VEIL_TAG       = "[VEIL]"
+local poisonerColor  = Color3.fromRGB(50, 220, 100)
+local POISONER_TAG   = "[POISONER]"
+local mafColor       = Color3.fromRGB(220, 90, 90)
+local innoColor      = Color3.fromRGB(190, 190, 200)
+local VEC_TOP        = Vector3.new(0,  2.8, 0)
+local VEC_BOT        = Vector3.new(0, -3.2, 0)
 local sessionId         = 0
 local activeConnections = {}
 local renderConnection  = nil
@@ -25,20 +27,22 @@ local previousAlive = {}
 local totalJoined   = 0
 local displayCache  = {}
 local killers       = {}
+local poisonerName  = nil
 local ESPObjects    = {}
 local RenderCache   = {}
 local renderFrame   = 0
 local trackerData   = {
     alive="0 / 0", mafia="-", veil="-", dead="-",
-    inno1="-", inno2="-", inno3="-", inno4="-"
+    inno1="-", inno2="-", inno3="-", inno4="-", poisoner="-"
 }
 pcall(function()
     UI.AddTab("Players", function(tab)
         local info = tab:Section("Live Info", "Left")
-        info:InputText("alive_txt", "Alive", trackerData.alive, function() end)
-        info:InputText("mafia_txt", "Mafia", trackerData.mafia, function() end)
-        info:InputText("veil_txt",  "Veil",  trackerData.veil,  function() end)
-        info:InputText("dead_txt",  "Dead",  trackerData.dead,  function() end)
+        info:InputText("alive_txt",    "Alive",    trackerData.alive,    function() end)
+        info:InputText("mafia_txt",    "Mafia",    trackerData.mafia,    function() end)
+        info:InputText("veil_txt",     "Veil",     trackerData.veil,     function() end)
+        info:InputText("dead_txt",     "Dead",     trackerData.dead,     function() end)
+        info:InputText("poisoner_txt", "Poisoner", trackerData.poisoner, function() end)
         local inno = tab:Section("Innocent", "Right")
         inno:InputText("inno_1", "Row 1", trackerData.inno1, function() end)
         inno:InputText("inno_2", "Row 2", trackerData.inno2, function() end)
@@ -237,9 +241,10 @@ local function removePlayerESP(playerName)
         for i = 1, 8 do
             if obj.corners[i] then pcall(function() obj.corners[i]:Remove() end) end
         end
-        if obj.label   then pcall(function() obj.label:Remove()   end) end
-        if obj.tag     then pcall(function() obj.tag:Remove()     end) end
-        if obj.veilTag then pcall(function() obj.veilTag:Remove() end) end
+        if obj.label       then pcall(function() obj.label:Remove()       end) end
+        if obj.tag         then pcall(function() obj.tag:Remove()         end) end
+        if obj.veilTag     then pcall(function() obj.veilTag:Remove()     end) end
+        if obj.poisonerTag then pcall(function() obj.poisonerTag:Remove() end) end
         ESPObjects[playerName] = nil
     end
     RenderCache[playerName] = nil
@@ -252,22 +257,24 @@ local function cleanupAllESP()
     RenderCache = {}
 end
 local function refreshESP()
-    local lp        = Players.LocalPlayer
+    local lp         = Players.LocalPlayer
     local mafiaNames = getMafiaNames()
     local veilNames  = getVeilNames()
     local newCache   = {}
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= lp then
             if isAlive(p) then
-                local dName   = getDisplayName(p)
-                local isMafia = mafiaNames[dName] or mafiaNames[p.Name]
-                local isVeil  = veilNames[dName]  or veilNames[p.Name]
+                local dName      = getDisplayName(p)
+                local isMafia    = mafiaNames[dName] or mafiaNames[p.Name]
+                local isVeil     = veilNames[dName]  or veilNames[p.Name]
+                local isPoisoner = poisonerName ~= nil and p.Name == poisonerName
                 newCache[p.Name] = {
-                    player   = p,
-                    dName    = dName,
-                    status   = isMafia and "Mafia" or "Civ",
-                    isKiller = killers[p.Name] ~= nil,
-                    isVeil   = isVeil and true or false,
+                    player     = p,
+                    dName      = dName,
+                    status     = isMafia and "Mafia" or "Civ",
+                    isKiller   = killers[p.Name] ~= nil,
+                    isVeil     = isVeil and true or false,
+                    isPoisoner = isPoisoner,
                 }
             else
                 removePlayerESP(p.Name)
@@ -293,12 +300,13 @@ local function renderESP()
             local c = {}
             for i = 1, 8 do c[i] = newLine(Color3.fromRGB(220, 60, 60)) end
             obj = {
-                corners   = c,
-                label     = newText("", Color3.new(1,1,1), 16),
-                tag       = newText("", KILLER_COLOR, 14),
-                veilTag   = newText("", veilColor, 14),
-                hrp       = nil,
-                lastFrame = 0
+                corners     = c,
+                label       = newText("", Color3.new(1,1,1), 16),
+                tag         = newText("", KILLER_COLOR,  14),
+                veilTag     = newText("", veilColor,     14),
+                poisonerTag = newText("", poisonerColor, 14),
+                hrp         = nil,
+                lastFrame   = 0
             }
             ESPObjects[name] = obj
         end
@@ -313,17 +321,19 @@ local function renderESP()
             local botPos, botVis = WorldToScreen(hrpPos + VEC_BOT)
             if topVis and botVis and topPos and botPos then
                 obj.lastFrame = renderFrame
-                local isKiller = killers[name] ~= nil
-                local isVeil   = data.isVeil
-                local color    = data.status == "Mafia" and mafColor or innoColor
-                if isKiller then color = KILLER_COLOR end
-                if isVeil   then color = veilColor    end
+                local isKiller   = killers[name] ~= nil
+                local isVeil     = data.isVeil
+                local isPoisoner = data.isPoisoner
+                local color = data.status == "Mafia" and mafColor or innoColor
+                if isKiller   then color = KILLER_COLOR  end
+                if isVeil     then color = veilColor     end
+                if isPoisoner then color = poisonerColor end
                 local label   = obj.label
                 local corners = obj.corners
                 for i = 1, 8 do
                     if corners[i].Color ~= color then corners[i].Color = color end
                 end
-                if data.status == "Mafia" or isVeil then
+                if data.status == "Mafia" or isVeil or isPoisoner then
                     local h     = botPos.Y - topPos.Y
                     local w     = h * 0.45
                     local cs    = math.max(6, math.min(w, h) * 0.15)
@@ -352,8 +362,8 @@ local function renderESP()
                     local labelPos = Vector2.new(topX, topY - 18)
                     if label.Position ~= labelPos then label.Position = labelPos end
                     if not label.Visible then label.Visible = true end
-                    if isKiller and not isVeil then
-                        local tagPos = Vector2.new(topX + halfW + 35, topY - 18)
+                    local tagPos = Vector2.new(topX + halfW + 35, topY - 18)
+                    if isKiller and not isVeil and not isPoisoner then
                         if obj.tag.Text     ~= KILLER_TAG   then obj.tag.Text     = KILLER_TAG   end
                         if obj.tag.Color    ~= KILLER_COLOR then obj.tag.Color    = KILLER_COLOR end
                         if obj.tag.Position ~= tagPos       then obj.tag.Position = tagPos       end
@@ -361,14 +371,21 @@ local function renderESP()
                     else
                         if obj.tag.Visible then obj.tag.Visible = false end
                     end
-                    if isVeil then
-                        local vTagPos = Vector2.new(topX + halfW + 35, topY - 18)
+                    if isPoisoner then
+                        if obj.poisonerTag.Text     ~= POISONER_TAG  then obj.poisonerTag.Text     = POISONER_TAG  end
+                        if obj.poisonerTag.Color    ~= poisonerColor then obj.poisonerTag.Color    = poisonerColor end
+                        if obj.poisonerTag.Position ~= tagPos        then obj.poisonerTag.Position = tagPos        end
+                        if not obj.poisonerTag.Visible then obj.poisonerTag.Visible = true end
+                        if obj.veilTag.Visible then obj.veilTag.Visible = false end
+                    elseif isVeil then
                         if obj.veilTag.Text     ~= VEIL_TAG  then obj.veilTag.Text     = VEIL_TAG  end
                         if obj.veilTag.Color    ~= veilColor then obj.veilTag.Color    = veilColor end
-                        if obj.veilTag.Position ~= vTagPos   then obj.veilTag.Position = vTagPos   end
+                        if obj.veilTag.Position ~= tagPos    then obj.veilTag.Position = tagPos    end
                         if not obj.veilTag.Visible then obj.veilTag.Visible = true end
+                        if obj.poisonerTag.Visible then obj.poisonerTag.Visible = false end
                     else
-                        if obj.veilTag.Visible then obj.veilTag.Visible = false end
+                        if obj.veilTag.Visible     then obj.veilTag.Visible     = false end
+                        if obj.poisonerTag.Visible then obj.poisonerTag.Visible = false end
                     end
                 else
                     for i = 1, 8 do
@@ -379,8 +396,9 @@ local function renderESP()
                     local labelPos = Vector2.new(topPos.X, topPos.Y - 18)
                     if label.Position ~= labelPos then label.Position = labelPos end
                     if not label.Visible then label.Visible = true end
-                    if obj.tag     and obj.tag.Visible     then obj.tag.Visible     = false end
-                    if obj.veilTag and obj.veilTag.Visible then obj.veilTag.Visible = false end
+                    if obj.tag         and obj.tag.Visible         then obj.tag.Visible         = false end
+                    if obj.veilTag     and obj.veilTag.Visible     then obj.veilTag.Visible     = false end
+                    if obj.poisonerTag and obj.poisonerTag.Visible then obj.poisonerTag.Visible = false end
                 end
             end
         end
@@ -390,9 +408,10 @@ local function renderESP()
             for i = 1, 8 do
                 if obj.corners[i].Visible then obj.corners[i].Visible = false end
             end
-            if obj.label   and obj.label.Visible   then obj.label.Visible   = false end
-            if obj.tag     and obj.tag.Visible     then obj.tag.Visible     = false end
-            if obj.veilTag and obj.veilTag.Visible then obj.veilTag.Visible = false end
+            if obj.label       and obj.label.Visible       then obj.label.Visible       = false end
+            if obj.tag         and obj.tag.Visible         then obj.tag.Visible         = false end
+            if obj.veilTag     and obj.veilTag.Visible     then obj.veilTag.Visible     = false end
+            if obj.poisonerTag and obj.poisonerTag.Visible then obj.poisonerTag.Visible = false end
         end
     end
 end
@@ -408,6 +427,34 @@ local function stopSession()
     cleanupAllESP()
     sessionId = sessionId + 1
 end
+local function distanceVec(a, b)
+    local dx = a.X - b.X
+    local dy = a.Y - b.Y
+    local dz = a.Z - b.Z
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
+end
+local function getClosestPlayer(potionPos)
+    local closest = nil
+    local closestDist = math.huge
+    local ok, playerList = pcall(function() return Players:GetPlayers() end)
+    if not ok or not playerList then return nil, 0 end
+    local lp = Players.LocalPlayer
+    for _, player in ipairs(playerList) do
+        if player == lp then continue end
+        local ok2, dist = pcall(function()
+            local char = player.Character
+            if not char then return nil end
+            local root = char.PrimaryPart
+            if not root then return nil end
+            return distanceVec(root.Position, potionPos)
+        end)
+        if ok2 and dist and dist < closestDist then
+            closestDist = dist
+            closest = player
+        end
+    end
+    return closest, closestDist
+end
 local function startSession()
     local lp        = Players.LocalPlayer
     local mySession = sessionId
@@ -419,7 +466,10 @@ local function startSession()
     totalJoined   = 0
     displayCache  = {}
     killers       = {}
+    poisonerName  = nil
     renderFrame   = 0
+    trackerData.poisoner = "-"
+    pcall(function() UI.SetValue("poisoner_txt", "-") end)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= lp then totalJoined = totalJoined + 1 end
     end
@@ -439,6 +489,11 @@ local function startSession()
             previousAlive[n] = nil
             removePlayerESP(n)
             killers[n] = nil
+            if poisonerName == n then
+                poisonerName = nil
+                trackerData.poisoner = "-"
+                pcall(function() UI.SetValue("poisoner_txt", "-") end)
+            end
         end)
     end)
     if ok2 and conn2 then table.insert(activeConnections, conn2) end
@@ -486,6 +541,32 @@ local function startSession()
         end
     end)
     task.spawn(function()
+        local poisonWasPresent = false
+        while mySession == sessionId do
+            pcall(function()
+                local potion = Workspace:FindFirstChild("poisonPotion")
+                local isPresent = potion ~= nil
+                if isPresent and not poisonWasPresent then
+                    local potionPos = potion.Position
+                    local closest, dist = getClosestPlayer(potionPos)
+                    if closest then
+                        local name = getDisplayName(closest)
+                        poisonerName = closest.Name
+                        trackerData.poisoner = name .. " (" .. math.floor(dist) .. " studs)"
+                        pcall(function() UI.SetValue("poisoner_txt", trackerData.poisoner) end)
+                        notify("Veil - Poisoner Found", name .. " (" .. math.floor(dist) .. " studs away)")
+                    end
+                elseif not isPresent and poisonWasPresent then
+                    poisonerName = nil
+                    trackerData.poisoner = "-"
+                    pcall(function() UI.SetValue("poisoner_txt", "-") end)
+                end
+                poisonWasPresent = isPresent
+            end)
+            wait(0.05)
+        end
+    end)
+    task.spawn(function()
         while mySession == sessionId do
             task.wait(5)
             if mySession ~= sessionId then break end
@@ -494,9 +575,9 @@ local function startSession()
             for _, p in ipairs(all) do
                 if p ~= lp then nameMap[p.Name] = p end
             end
-            local ch          = getMafiaChannel()
+            local ch           = getMafiaChannel()
             local mafiaEntries = {}
-            local mafiaSet    = {}
+            local mafiaSet     = {}
             if ch then
                 local ok, children = pcall(function() return ch:GetChildren() end)
                 if ok and children then
@@ -512,9 +593,9 @@ local function startSession()
                     end
                 end
             end
-            local vch        = getVeilChannel()
+            local vch         = getVeilChannel()
             local veilEntries = {}
-            local veilSet    = {}
+            local veilSet     = {}
             if vch then
                 local ok, children = pcall(function() return vch:GetChildren() end)
                 if ok and children then
