@@ -10,7 +10,6 @@ local KILLER_COLOR   = Color3.fromRGB(255, 140, 30)
 local KILLER_TAG     = "[KILLER]"
 local veilColor      = Color3.fromRGB(160, 80, 230)
 local VEIL_TAG       = "[VEIL]"
-local poisonerColor  = Color3.fromRGB(50, 220, 100)
 local POISONER_TAG   = "[POISONER]"
 local mafColor       = Color3.fromRGB(220, 90, 90)
 local innoColor      = Color3.fromRGB(190, 190, 200)
@@ -302,9 +301,9 @@ local function renderESP()
             obj = {
                 corners     = c,
                 label       = newText("", Color3.new(1,1,1), 16),
-                tag         = newText("", KILLER_COLOR,  14),
-                veilTag     = newText("", veilColor,     14),
-                poisonerTag = newText("", poisonerColor, 14),
+                tag         = newText("", KILLER_COLOR, 14),
+                veilTag     = newText("", veilColor,    14),
+                poisonerTag = newText("", veilColor,    14),
                 hrp         = nil,
                 lastFrame   = 0
             }
@@ -325,9 +324,9 @@ local function renderESP()
                 local isVeil     = data.isVeil
                 local isPoisoner = data.isPoisoner
                 local color = data.status == "Mafia" and mafColor or innoColor
-                if isKiller   then color = KILLER_COLOR  end
-                if isVeil     then color = veilColor     end
-                if isPoisoner then color = poisonerColor end
+                if isKiller   then color = KILLER_COLOR end
+                if isVeil     then color = veilColor    end
+                if isPoisoner then color = veilColor    end
                 local label   = obj.label
                 local corners = obj.corners
                 for i = 1, 8 do
@@ -372,9 +371,9 @@ local function renderESP()
                         if obj.tag.Visible then obj.tag.Visible = false end
                     end
                     if isPoisoner then
-                        if obj.poisonerTag.Text     ~= POISONER_TAG  then obj.poisonerTag.Text     = POISONER_TAG  end
-                        if obj.poisonerTag.Color    ~= poisonerColor then obj.poisonerTag.Color    = poisonerColor end
-                        if obj.poisonerTag.Position ~= tagPos        then obj.poisonerTag.Position = tagPos        end
+                        if obj.poisonerTag.Text     ~= POISONER_TAG then obj.poisonerTag.Text     = POISONER_TAG end
+                        if obj.poisonerTag.Color    ~= veilColor    then obj.poisonerTag.Color    = veilColor    end
+                        if obj.poisonerTag.Position ~= tagPos       then obj.poisonerTag.Position = tagPos       end
                         if not obj.poisonerTag.Visible then obj.poisonerTag.Visible = true end
                         if obj.veilTag.Visible then obj.veilTag.Visible = false end
                     elseif isVeil then
@@ -548,13 +547,13 @@ local function startSession()
                 local isPresent = potion ~= nil
                 if isPresent and not poisonWasPresent then
                     local potionPos = potion.Position
-                    local closest, dist = getClosestPlayer(potionPos)
+                    local closest, _ = getClosestPlayer(potionPos)
                     if closest then
                         local name = getDisplayName(closest)
                         poisonerName = closest.Name
-                        trackerData.poisoner = name .. " (" .. math.floor(dist) .. " studs)"
-                        pcall(function() UI.SetValue("poisoner_txt", trackerData.poisoner) end)
-                        notify("Veil - Poisoner Found", name .. " (" .. math.floor(dist) .. " studs away)")
+                        trackerData.poisoner = name
+                        pcall(function() UI.SetValue("poisoner_txt", name) end)
+                        notify("Veil - Poisoner Found", name)
                     end
                 elseif not isPresent and poisonWasPresent then
                     poisonerName = nil
